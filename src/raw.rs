@@ -197,8 +197,8 @@ pub mod ffi {
 
     #[cfg(libpcap_1_2_1)]
     extern "C" {
-        // pub fn pcap_free_tstamp_types(arg1: *mut c_int) -> ();
-        // pub fn pcap_list_tstamp_types(arg1: *mut pcap_t, arg2: *mut *mut c_int) -> c_int;
+        pub fn pcap_free_tstamp_types(arg1: *mut c_int) -> ();
+        pub fn pcap_list_tstamp_types(arg1: *mut pcap_t, arg2: *mut *mut c_int) -> c_int;
         // pub fn pcap_tstamp_type_name_to_val(arg1: *const c_char) -> c_int;
         // pub fn pcap_tstamp_type_val_to_description(arg1: c_int) -> *const c_char;
         // pub fn pcap_tstamp_type_val_to_name(arg1: c_int) -> *const c_char;

@@ -58,6 +58,26 @@ impl Capture<Inactive> {
         self
     }
 
+    #[cfg(libpcap_1_2_1)]
+    pub fn list_tstamp_types(&self) -> Result<Vec<TimestampType>, Error> {
+        unsafe {
+            use std::ptr;
+            let mut tstamp_types: *mut i32 = ptr::null_mut();
+            let num = raw::pcap_list_tstamp_types(self.handle.as_ptr(), &mut tstamp_types);
+            let mut vec = vec![];
+            if num > 0 {
+                vec.extend(
+                    std::slice::from_raw_parts(tstamp_types, num as usize)
+                        .iter()
+                        .cloned()
+                        .filter_map(TimestampType::from_i32),
+                );
+            }
+            raw::pcap_free_tstamp_types(tstamp_types);
+            self.check_err(num > 0).and(Ok(vec))
+        }
+    }
+
     /// Set promiscuous mode on or off. By default, this is off.
     pub fn promisc(self, to: bool) -> Capture<Inactive> {
         unsafe { raw::pcap_set_promisc(self.handle.as_ptr(), to as _) };
@@ -181,6 +201,19 @@ pub enum TimestampType {
     AdapterUnsynced = 4,
 }
 
+impl TimestampType {
+    pub fn from_i32(v: i32) -> Option<Self> {
+        match v {
+            0 => Some(Self::Host),
+            1 => Some(Self::HostLowPrec),
+            2 => Some(Self::HostHighPrec),
+            3 => Some(Self::Adapter),
+            4 => Some(Self::AdapterUnsynced),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
@@ -299,6 +332,79 @@ mod tests {
         // For code coverage of the derive line.
         assert_ne!(TimestampType::Host, TimestampType::HostLowPrec);
         assert_ne!(TimestampType::Host, TimestampType::HostHighPrec);
+    }
+
+    #[test]
+    #[cfg(libpcap_1_2_1)]
+    fn test_timestamp_type_from_i32() {
+        assert_eq!(TimestampType::from_i32(0), Some(TimestampType::Host));
+        assert_eq!(TimestampType::from_i32(1), Some(TimestampType::HostLowPrec));
+        assert_eq!(
+            TimestampType::from_i32(2),
+            Some(TimestampType::HostHighPrec)
+        );
+        assert_eq!(TimestampType::from_i32(3), Some(TimestampType::Adapter));
+        assert_eq!(
+            TimestampType::from_i32(4),
+            Some(TimestampType::AdapterUnsynced)
+        );
+
+        assert_eq!(TimestampType::from_i32(-1), None);
+        assert_eq!(TimestampType::from_i32(5), None);
+        assert_eq!(TimestampType::from_i32(999), None);
+    }
+
+    #[test]
+    #[cfg(libpcap_1_2_1)]
+    fn test_list_tstamp_types() {
+        let _m = RAWMTX.lock();
+
+        let mut value: isize = 777;
+        let pcap = as_pcap_t(&mut value);
+
+        let test_capture = test_capture::<Inactive>(pcap);
+        let capture = test_capture.capture;
+
+        let ctx = raw::pcap_list_tstamp_types_context();
+        ctx.expect()
+            .withf_st(move |arg1, _| *arg1 == pcap)
+            .return_once_st(|_, _| 0);
+
+        let ctx = raw::pcap_free_tstamp_types_context();
+        ctx.expect().return_once(|_| {});
+
+        let _err = geterr_expect(pcap);
+
+        let result = capture.list_tstamp_types();
+        assert!(result.is_err());
+
+        let mut tstamp_types: [i32; 4] = [0, 1, 2, 4];
+        let types_ptr: *mut i32 = tstamp_types.as_mut_ptr();
+        let len = tstamp_types.len();
+
+        let ctx = raw::pcap_list_tstamp_types_context();
+        ctx.checkpoint();
+        ctx.expect()
+            .withf_st(move |arg1, _| *arg1 == pcap)
+            .return_once_st(move |_, arg2| {
+                unsafe { *arg2 = types_ptr };
+                len as i32
+            });
+
+        let ctx = raw::pcap_free_tstamp_types_context();
+        ctx.checkpoint();
+        ctx.expect().return_once(|_| {});
+
+        let result = capture.list_tstamp_types().unwrap();
+
+        assert_eq!(
+            result,
+            tstamp_types
+                .iter()
+                .cloned()
+                .filter_map(TimestampType::from_i32)
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
